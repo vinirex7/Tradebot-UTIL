@@ -25,6 +25,9 @@ env/
 *.sqlite3
 data/raw/
 data/processed/
+data/benchmarks/*.csv
+data/benchmarks/*.txt
+!data/benchmarks/README.md
 logs/
 state/
 reports/
