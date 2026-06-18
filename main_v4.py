@@ -22,10 +22,11 @@ def load_prices(config, args, tickers_list):
 
 
 def print_metrics(metrics):
+    percent_words = ["return", "drawdown", "alpha", "volatility", "error"]
     for key, value in metrics.items():
         if "final_value" in key:
             print(f"{key}: R$ {value:,.2f}")
-        elif any(word in key for word in ["return", "drawdown", "alpha", "volatility", "error", "ratio"]):
+        elif any(word in key for word in percent_words):
             print(f"{key}: {value:.2%}")
         else:
             print(f"{key}: {value:.4f}")
