@@ -1,0 +1,10 @@
+[project]
+name = "tradebot-util"
+version = "0.1.0"
+description = "Tradebot quantitativo especializado no índice UTIL da B3"
+requires-python = ">=3.10"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
