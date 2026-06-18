@@ -1,9 +1,9 @@
 strategy:
   name: UTIL Dynamic Universe Allocation V5
-  version: 5.0
+  version: 5.1
   benchmark: real_UTIL_csv
   mode: long_only
-  objective: rebalance_and_update_constituents_monthly_according_to_UTIL_changes
+  objective: live_ready_paper_first_with_dynamic_universe_and_backtest_aligned_decisions
 
 universe:
   source: B3_UTIL
@@ -121,12 +121,26 @@ risk:
   use_cash_protection: true
 
 execution:
-  mode: backtest
-  order_type: limit
+  mode: paper
+  real_orders_enabled: false
+  broker: paper
+  order_type: target_weight
+  min_order_value: 50
   allow_market_order: false
   max_order_percent_of_avg_volume: 0.05
   slippage_assumption: 0.002
   estimated_cost_per_trade: 0.002
+
+live:
+  enabled: true
+  safe_mode: true
+  allowed_modes: [dry-run, paper]
+  decision_output_dir: state/live
+  paper_state_path: state/paper/positions.csv
+  schedule_hint: daily_after_close
+  update_universe_before_decision: true
+  require_real_benchmark_csv: true
+  block_real_orders_without_adapter: true
 
 backtest:
   initial_cash: 10000
