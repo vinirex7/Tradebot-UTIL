@@ -29,6 +29,8 @@ logs/
 state/
 reports/
 backtests/results/
+backtests/results_v2/
+backtests/results*/
 *.jsonl
 *.log
 
