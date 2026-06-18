@@ -6,9 +6,9 @@ import pandas as pd
 
 from tradebot_util.backtest_v4 import run_backtest_v4, save_backtest_v4
 from tradebot_util.config import load_config
+from tradebot_util.live_executor_v5 import run_live_cycle_v5
 from tradebot_util.market_data import download_adjusted_close, download_volume
-from tradebot_util.regime import detect_regime
-from tradebot_util.scoring import final_scores
+from tradebot_util.strategy_live_v5 import generate_live_decision_v5, save_live_decision
 from tradebot_util.universe import tickers
 from tradebot_util.universe_dynamic_v5 import load_active_universe_or_config, update_dynamic_universe
 
@@ -64,22 +64,64 @@ def cmd_show_config(args):
 
 
 def cmd_rank(args):
-    config = load_config(args.config)
-    if args.update_universe_first:
-        update_dynamic_universe(config, source_csv=args.universe_csv)
-    assets = load_active_universe_or_config(config)
-    tickers_list = tickers(assets)
-    prices = load_prices(config, args, tickers_list)
-    volume = None
-    if not args.prices_csv:
-        try:
-            volume = download_volume(list(prices.columns), start=config.get("data", {}).get("start", "2018-01-01"))
-        except Exception:
-            volume = None
-    scores = final_scores(prices, config, volume=volume)
-    regime = detect_regime(prices, config)
-    print(f"Regime V5: {regime.regime} | Exposição base em ações: {regime.equity_exposure:.0%}")
-    print(scores.round(2).to_string())
+    decision = generate_live_decision_v5(
+        config_path=args.config,
+        benchmark_csv=args.benchmark_csv,
+        universe_csv=args.universe_csv,
+        prices_csv=args.prices_csv,
+        update_universe_first=args.update_universe_first,
+    )
+    print(f"Regime V5: {decision.regime} | Exposição base em ações: {decision.equity_exposure:.0%}")
+    print(f"Benchmark usado no regime: {decision.benchmark_used}")
+    print(f"Universo ativo: {decision.universe_size} ativos")
+    print(decision.scores.round(2).to_string())
+
+
+def cmd_decide(args):
+    decision = generate_live_decision_v5(
+        config_path=args.config,
+        benchmark_csv=args.benchmark_csv,
+        universe_csv=args.universe_csv,
+        prices_csv=args.prices_csv,
+        update_universe_first=args.update_universe_first,
+    )
+    out = save_live_decision(decision, output_dir=args.output_dir)
+    target = decision.target_weights.copy()
+    target.loc["CASH"] = max(0.0, 1.0 - float(target.sum()))
+    print("Decisão live V5 gerada")
+    print(f"Data base: {decision.as_of}")
+    print(f"Regime: {decision.regime}")
+    print(f"Benchmark usado: {decision.benchmark_used}")
+    print(f"Universo ativo: {decision.universe_size} ativos")
+    print("\nPesos alvo")
+    for ticker, weight in target.sort_values(ascending=False).items():
+        print(f"{ticker:7s} {weight:7.2%}")
+    print(f"\nArquivos salvos em: {out}")
+
+
+def cmd_live_cycle(args):
+    result = run_live_cycle_v5(
+        mode=args.mode,
+        config_path=args.config,
+        benchmark_csv=args.benchmark_csv,
+        universe_csv=args.universe_csv,
+        prices_csv=args.prices_csv,
+        update_universe_first=args.update_universe_first,
+        output_dir=args.output_dir,
+        min_order_value=args.min_order_value,
+        apply_paper_targets=args.apply_paper_targets,
+    )
+    print("Ciclo live V5 concluído")
+    print(f"Modo: {result.mode}")
+    print(f"Data base: {result.as_of}")
+    print(f"Regime: {result.regime}")
+    print(f"Benchmark usado: {result.benchmark_used}")
+    print(f"Universo ativo: {result.universe_size} ativos")
+    print(f"Patrimônio base: R$ {result.account_equity:,.2f}")
+    print(f"Ordens/intents geradas: {len(result.intents)}")
+    for intent in result.intents:
+        print(f"{intent.side:4s} {intent.ticker:7s} delta R$ {intent.delta_value:,.2f} alvo {intent.target_weight:.2%}")
+    print(f"Arquivos salvos em: {result.output_dir}")
 
 
 def cmd_backtest(args):
@@ -112,8 +154,16 @@ def cmd_backtest(args):
     print(f"\nArquivos V5 salvos em: {out}")
 
 
+def add_common_strategy_args(parser):
+    parser.add_argument("--config", default="config_v5.yaml")
+    parser.add_argument("--prices-csv", default=None)
+    parser.add_argument("--benchmark-csv", default=None)
+    parser.add_argument("--universe-csv", default=None)
+    parser.add_argument("--update-universe-first", action="store_true")
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(description="Tradebot UTIL V5 - Dynamic Universe")
+    parser = argparse.ArgumentParser(description="Tradebot UTIL V5 - Dynamic Universe + Live/Paper")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     update_universe = subparsers.add_parser("update-universe", help="Atualiza o universo ativo do UTIL a partir de CSV")
@@ -130,11 +180,21 @@ def build_parser():
     show_config.set_defaults(func=cmd_show_config)
 
     rank = subparsers.add_parser("rank")
-    rank.add_argument("--config", default="config_v5.yaml")
-    rank.add_argument("--prices-csv", default=None)
-    rank.add_argument("--universe-csv", default=None)
-    rank.add_argument("--update-universe-first", action="store_true")
+    add_common_strategy_args(rank)
     rank.set_defaults(func=cmd_rank)
+
+    decide = subparsers.add_parser("decide", help="Gera decisão live sem enviar ordens")
+    add_common_strategy_args(decide)
+    decide.add_argument("--output-dir", default="state/live")
+    decide.set_defaults(func=cmd_decide)
+
+    live_cycle = subparsers.add_parser("live-cycle", help="Gera decisão e intenções de ordem em dry-run/paper")
+    add_common_strategy_args(live_cycle)
+    live_cycle.add_argument("--mode", choices=["dry-run", "paper"], default="paper")
+    live_cycle.add_argument("--output-dir", default="state/live")
+    live_cycle.add_argument("--min-order-value", type=float, default=50.0)
+    live_cycle.add_argument("--apply-paper-targets", action="store_true")
+    live_cycle.set_defaults(func=cmd_live_cycle)
 
     backtest = subparsers.add_parser("backtest")
     backtest.add_argument("--config", default="config_v5.yaml")
