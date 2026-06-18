@@ -19,6 +19,18 @@ def _parse_decimal_series(series: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce")
 
 
+def _parse_dates(series: pd.Series) -> pd.Series:
+    text = series.astype(str).str.strip()
+    iso_mask = text.str.match(r"^\d{4}-\d{2}-\d{2}$", na=False)
+    if bool(iso_mask.all()):
+        return pd.to_datetime(text, format="%Y-%m-%d", errors="coerce")
+    br_mask = text.str.match(r"^\d{2}[./-]\d{2}[./-]\d{4}$", na=False)
+    if bool(br_mask.all()):
+        normalized = text.str.replace(".", "/", regex=False).str.replace("-", "/", regex=False)
+        return pd.to_datetime(normalized, format="%d/%m/%Y", errors="coerce")
+    return pd.to_datetime(text, dayfirst=True, errors="coerce")
+
+
 def load_real_util_csv(path: str | Path, initial_cash: float = 10000.0) -> pd.Series:
     csv_path = Path(path)
     if not csv_path.exists():
@@ -38,7 +50,7 @@ def load_real_util_csv(path: str | Path, initial_cash: float = 10000.0) -> pd.Se
     if value_col is None:
         raise ValueError("CSV do benchmark precisa ter uma coluna de data e uma coluna de valor")
 
-    dates = pd.to_datetime(df[date_col], dayfirst=True, errors="coerce")
+    dates = _parse_dates(df[date_col])
     values = _parse_decimal_series(df[value_col])
     series = pd.Series(values.values, index=dates).dropna().sort_index()
     series = series[~series.index.duplicated(keep="last")]
