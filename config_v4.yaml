@@ -1,0 +1,130 @@
+strategy:
+  name: UTIL Modern Regime Allocation V4
+  version: 4.0
+  benchmark: real_UTIL_csv
+  mode: long_only
+  objective: reduce_cash_drag_improve_sharpe_and_try_to_outperform_real_UTIL
+
+universe:
+  source: B3_UTIL
+  auto_update: false
+  assets:
+    AXIA3: {name: Axia Energia, sector: Energia Elétrica, index_weight: 0.1977}
+    SBSP3: {name: Sabesp, sector: Água e Saneamento, index_weight: 0.1885}
+    EQTL3: {name: Equatorial Energia, sector: Energia Elétrica, index_weight: 0.1181}
+    ENEV3: {name: Eneva, sector: Energia Elétrica, index_weight: 0.1178}
+    CPLE3: {name: Copel, sector: Energia Elétrica, index_weight: 0.1084}
+    CMIG4: {name: Cemig, sector: Energia Elétrica, index_weight: 0.0514}
+    ENGI11: {name: Energisa, sector: Energia Elétrica, index_weight: 0.0378}
+    EGIE3: {name: Engie Brasil, sector: Energia Elétrica, index_weight: 0.0309}
+    ISAE4: {name: ISA Energia Brasil, sector: Energia Elétrica, index_weight: 0.0290}
+    CSMG3: {name: Copasa, sector: Água e Saneamento, index_weight: 0.0267}
+    TAEE11: {name: Taesa, sector: Energia Elétrica, index_weight: 0.0217}
+    CPFE3: {name: CPFL Energia, sector: Energia Elétrica, index_weight: 0.0207}
+    SAPR11: {name: Sanepar, sector: Água e Saneamento, index_weight: 0.0192}
+    ALUP11: {name: Alupar, sector: Energia Elétrica, index_weight: 0.0127}
+    ORVR3: {name: Orizon, sector: Água e Saneamento, index_weight: 0.0103}
+    AURE3: {name: Auren, sector: Energia Elétrica, index_weight: 0.0092}
+
+data:
+  provider: yfinance
+  timeframe: 1d
+  adjusted_prices: true
+  start: "2018-01-01"
+  min_history_days: 252
+
+benchmark:
+  source: csv
+  csv_path: data/benchmarks/UTIL_historico.csv
+  strict_real_benchmark: false
+  fallback: weighted_UTIL_proxy
+
+rebalance:
+  main_frequency: monthly
+  risk_check_frequency: weekly
+  min_weight_change_to_trade: 0.010
+  weekly_rebalance: true
+  weekly_rebalance_min_exposure_gap: 0.08
+  weekly_rebalance_on_regime_change: true
+
+regime:
+  # V4 reduz caixa em regimes bons. Defesa forte só em RISK_OFF real.
+  risk_on_equity: 1.00
+  neutral_equity: 0.98
+  defensive_equity: 0.78
+  risk_off_equity: 0.45
+  ma_fast: 50
+  ma_mid: 100
+  ma_slow: 200
+  breadth_risk_on: 0.55
+  breadth_neutral: 0.40
+  breadth_risk_off: 0.30
+
+portfolio_v4:
+  min_positions: 5
+  max_positions: 8
+  min_weight_per_asset: 0.030
+  max_weight_per_asset: 0.26
+  max_top3_weight: 0.68
+  score_power: 1.75
+  use_inverse_volatility: true
+  volatility_window: 63
+  target_volatility: 0.24
+  apply_vol_target_only_in_defense: true
+  vol_scalar_floor: 0.65
+  max_cash_by_regime:
+    RISK_ON: 0.05
+    NEUTRAL: 0.10
+    DEFENSIVE: 0.28
+    RISK_OFF: 0.55
+  min_equity_exposure: 0.35
+  max_equity_exposure: 1.00
+  benchmark_trend_bonus: true
+  keep_cash_when_no_edge: true
+  minimum_score_edge: 52
+
+score_weights:
+  relative_momentum: 0.52
+  absolute_momentum: 0.26
+  quality: 0.02
+  risk: 0.15
+  dividends: 0.02
+  liquidity: 0.03
+
+buy_rules:
+  min_score_to_buy: 56
+  allow_top_rank_exception: true
+  top_rank_exception_count: 5
+  require_price_above_ma100: false
+  require_positive_6m_return: false
+  avoid_if_price_above_ma20_plus_atr: 3.0
+
+sell_rules:
+  reduce_score_below: 50
+  sell_score_below: 42
+  sell_if_below_ma200: false
+  sell_if_6m_momentum_negative: false
+  trailing_drawdown_from_peak: 0.20
+
+risk:
+  portfolio_drawdown_reduce_1: 0.10
+  portfolio_drawdown_reduce_2: 0.16
+  portfolio_drawdown_protection: 0.24
+  max_single_asset_drawdown: 0.20
+  use_cash_protection: true
+
+execution:
+  mode: backtest
+  order_type: limit
+  allow_market_order: false
+  max_order_percent_of_avg_volume: 0.05
+  slippage_assumption: 0.002
+  estimated_cost_per_trade: 0.002
+
+backtest:
+  initial_cash: 10000
+  include_taxes: false
+  include_slippage: true
+  include_costs: true
+  output_dir: backtests/results_v4
+  compare_to: [real_UTIL_or_proxy, weighted_UTIL_proxy, equal_weight_UTIL]
