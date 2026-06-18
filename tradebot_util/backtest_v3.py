@@ -120,6 +120,15 @@ def _metrics(bot: pd.Series, primary: pd.Series, weighted: pd.Series, equal: pd.
     }
 
 
+def _slice_for_metrics(curve: pd.Series, metric_start_date: str | None) -> pd.Series:
+    clean = curve.dropna()
+    if metric_start_date is None or clean.empty:
+        return clean
+    start = pd.Timestamp(metric_start_date)
+    sliced = clean.loc[clean.index >= start]
+    return sliced if len(sliced) >= 2 else clean
+
+
 def _final_portfolio(weights: pd.Series, scores: pd.DataFrame, assets: list[Asset]) -> pd.DataFrame:
     asset_map = {a.ticker: a for a in assets}
     rows = []
@@ -191,7 +200,16 @@ def run_backtest_v3(prices: pd.DataFrame, assets: list[Asset], config: dict, ben
     weights_with_cash.loc["CASH"] = max(0.0, 1.0 - float(weights.sum()))
     final_portfolio = _final_portfolio(weights_with_cash, last_scores, available_assets)
     weights_history = pd.DataFrame(rows).set_index("DATE") if rows else pd.DataFrame()
-    metrics = _metrics(equity, primary, weighted, equal)
+
+    # Métricas começam no início real de operação, não no período de warmup.
+    # O warmup serve apenas para calcular indicadores antes da primeira decisão.
+    metric_start_date = trade_start_date
+    metrics = _metrics(
+        _slice_for_metrics(equity, metric_start_date),
+        _slice_for_metrics(primary, metric_start_date),
+        _slice_for_metrics(weighted, metric_start_date),
+        _slice_for_metrics(equal, metric_start_date),
+    )
 
     return BacktestV3Result(equity, primary, weighted, equal, weights_history, final_portfolio, metrics, primary_name)
 
