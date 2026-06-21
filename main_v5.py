@@ -110,6 +110,8 @@ def cmd_live_cycle(args):
         output_dir=args.output_dir,
         min_order_value=args.min_order_value,
         apply_paper_targets=args.apply_paper_targets,
+        confirm_live=args.confirm_live,
+        max_live_order_value=args.max_live_order_value,
     )
     print("Ciclo live V5 concluído")
     print(f"Modo: {result.mode}")
@@ -190,10 +192,12 @@ def build_parser():
 
     live_cycle = subparsers.add_parser("live-cycle", help="Gera decisão e intenções de ordem em dry-run/paper")
     add_common_strategy_args(live_cycle)
-    live_cycle.add_argument("--mode", choices=["dry-run", "paper"], default="paper")
+    live_cycle.add_argument("--mode", choices=["dry-run", "paper", "mt5-dry-run", "mt5-live"], default="paper")
     live_cycle.add_argument("--output-dir", default="state/live")
     live_cycle.add_argument("--min-order-value", type=float, default=50.0)
+    live_cycle.add_argument("--max-live-order-value", type=float, default=200.0)
     live_cycle.add_argument("--apply-paper-targets", action="store_true")
+    live_cycle.add_argument("--confirm-live", action="store_true")
     live_cycle.set_defaults(func=cmd_live_cycle)
 
     backtest = subparsers.add_parser("backtest")
