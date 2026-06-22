@@ -66,9 +66,20 @@ def _ann_return(curve: pd.Series) -> float:
     return float((1.0 + total) ** (252 / max(1, len(curve) - 1)) - 1.0)
 
 
+def _ann_vol(curve: pd.Series) -> float:
+    r = _ret(curve)
+    return float(r.std() * np.sqrt(252)) if len(r) else 0.0
+
+
 def _max_dd(curve: pd.Series) -> float:
     curve = curve.dropna()
     return float((curve / curve.cummax() - 1.0).min()) if len(curve) else 0.0
+
+
+def _sharpe(curve: pd.Series) -> float:
+    ann = _ann_return(curve)
+    vol = _ann_vol(curve)
+    return float(ann / vol) if vol > 0 else 0.0
 
 
 def _metrics(bot: pd.Series, primary: pd.Series, weighted: pd.Series, equal: pd.Series) -> dict[str, float]:
@@ -88,16 +99,17 @@ def _metrics(bot: pd.Series, primary: pd.Series, weighted: pd.Series, equal: pd.
     weighted_r = _ret(weighted).reindex(bot_r.index).fillna(0.0)
     equal_r = _ret(equal).reindex(bot_r.index).fillna(0.0)
 
-    bot_ann = _ann_return(bot)
-    bot_vol = float(bot_r.std() * np.sqrt(252)) if len(bot_r) else 0.0
-    sharpe = float(bot_ann / bot_vol) if bot_vol > 0 else 0.0
-
     active_primary = bot_r - primary_r
     active_weighted = bot_r - weighted_r
     active_equal = bot_r - equal_r
     te_primary = float(active_primary.std() * np.sqrt(252)) if len(active_primary) else 0.0
     te_weighted = float(active_weighted.std() * np.sqrt(252)) if len(active_weighted) else 0.0
     te_equal = float(active_equal.std() * np.sqrt(252)) if len(active_equal) else 0.0
+
+    bot_dd = _max_dd(bot)
+    primary_dd = _max_dd(primary)
+    weighted_dd = _max_dd(weighted)
+    equal_dd = _max_dd(equal)
 
     return {
         "bot_total_return": bot_total,
@@ -107,13 +119,20 @@ def _metrics(bot: pd.Series, primary: pd.Series, weighted: pd.Series, equal: pd.
         "alpha_vs_primary": bot_total - primary_total,
         "alpha_vs_weighted_proxy": bot_total - weighted_total,
         "alpha_vs_equal_weight": bot_total - equal_total,
-        "bot_annual_return": bot_ann,
-        "bot_annual_volatility": bot_vol,
-        "bot_sharpe": sharpe,
-        "bot_max_drawdown": _max_dd(bot),
-        "primary_benchmark_max_drawdown": _max_dd(primary),
-        "weighted_proxy_max_drawdown": _max_dd(weighted),
-        "equal_weight_max_drawdown": _max_dd(equal),
+        "bot_annual_return": _ann_return(bot),
+        "primary_benchmark_annual_return": _ann_return(primary),
+        "weighted_proxy_annual_return": _ann_return(weighted),
+        "equal_weight_annual_return": _ann_return(equal),
+        "bot_annual_volatility": _ann_vol(bot),
+        "primary_benchmark_annual_volatility": _ann_vol(primary),
+        "bot_sharpe": _sharpe(bot),
+        "primary_benchmark_sharpe": _sharpe(primary),
+        "sharpe_spread_vs_primary": _sharpe(bot) - _sharpe(primary),
+        "bot_max_drawdown": bot_dd,
+        "primary_benchmark_max_drawdown": primary_dd,
+        "weighted_proxy_max_drawdown": weighted_dd,
+        "equal_weight_max_drawdown": equal_dd,
+        "drawdown_reduction_vs_primary": abs(primary_dd) - abs(bot_dd),
         "tracking_error_vs_primary": te_primary,
         "information_ratio_vs_primary": float((active_primary.mean() * 252) / te_primary) if te_primary > 0 else 0.0,
         "tracking_error_vs_weighted": te_weighted,
@@ -228,7 +247,7 @@ def run_backtest_v4(prices: pd.DataFrame, assets: list[Asset], config: dict, ben
 
         benchmark_history = primary.loc[:date]
         regime = detect_regime(history, config, benchmark=benchmark_history)
-        last_scores = final_scores(history, config)
+        last_scores = final_scores(history, config, benchmark=benchmark_history)
         target = build_target_weights_v4(last_scores, history, available_assets, regime, config).reindex(prices.columns).fillna(0.0)
 
         action = "HOLD"
