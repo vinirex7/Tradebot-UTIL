@@ -35,35 +35,31 @@ def _cap_top3(weights: pd.Series, max_top3: float, target_sum: float) -> pd.Seri
     weights = weights.sort_values(ascending=False).copy()
     if len(weights) < 4 or float(weights.head(3).sum()) <= max_top3:
         return _normalize(weights, target_sum)
-
-    top = weights.head(3)
-    rest = weights.iloc[3:]
-    top = _normalize(top, min(max_top3, target_sum))
+    top = _normalize(weights.head(3), min(max_top3, target_sum))
     rest_target = max(0.0, target_sum - float(top.sum()))
-    rest = _normalize(rest, rest_target) if not rest.empty else rest
+    rest = _normalize(weights.iloc[3:], rest_target) if len(weights) > 3 else weights.iloc[3:]
     return pd.concat([top, rest]).sort_values(ascending=False)
 
 
 def _portfolio_realized_vol(prices: pd.DataFrame, raw_weights: pd.Series, window: int) -> float:
-    returns = prices.pct_change(fill_method=None).dropna()
-    common = [ticker for ticker in raw_weights.index if ticker in returns.columns]
+    rets = prices.pct_change(fill_method=None).dropna()
+    common = [ticker for ticker in raw_weights.index if ticker in rets.columns]
     if len(common) < 2:
         return 0.0
     weights = raw_weights.reindex(common).fillna(0.0)
     if float(weights.sum()) <= 0:
         return 0.0
     weights = weights / float(weights.sum())
-    port_rets = (returns[common].tail(window) * weights).sum(axis=1)
+    port_rets = (rets[common].tail(window) * weights).sum(axis=1)
     return float(port_rets.std() * np.sqrt(252)) if len(port_rets) > 2 else 0.0
 
 
 def _regime_max_cash(regime: str, config: dict) -> float:
-    cfg = config.get("portfolio_v4", {})
-    mapping = cfg.get("max_cash_by_regime", {})
+    mapping = config.get("portfolio_v4", {}).get("max_cash_by_regime", {})
     return float(mapping.get(regime, mapping.get(regime.upper(), 0.25)))
 
 
-def _target_exposure(raw_weights: pd.Series, prices: pd.DataFrame, regime: RegimeResult, config: dict) -> float:
+def _target_exposure(raw_weights: pd.Series, prices: pd.DataFrame, regime: RegimeResult, config: dict, top_score: float | None = None) -> float:
     cfg = config.get("portfolio_v4", {})
     min_exposure = float(cfg.get("min_equity_exposure", 0.35))
     max_exposure = float(cfg.get("max_equity_exposure", 1.00))
@@ -79,9 +75,12 @@ def _target_exposure(raw_weights: pd.Series, prices: pd.DataFrame, regime: Regim
         if should_apply_vol and realized_vol > target_vol:
             exposure *= max(scalar_floor, target_vol / realized_vol)
 
+    if bool(cfg.get("keep_cash_when_no_edge", True)) and top_score is not None:
+        if top_score < float(cfg.get("minimum_score_edge", 52)):
+            exposure *= float(cfg.get("no_edge_exposure_multiplier", 0.70))
+
     max_cash = _regime_max_cash(regime.regime, config)
-    regime_floor = max(0.0, 1.0 - max_cash)
-    exposure = max(exposure, regime_floor)
+    exposure = max(exposure, max(0.0, 1.0 - max_cash))
     return max(min_exposure, min(max_exposure, exposure))
 
 
@@ -94,6 +93,14 @@ def _trend_multiplier(prices: pd.DataFrame, tickers: pd.Index) -> pd.Series:
     multiplier += (ma50 > ma200).astype(float) * 0.15
     multiplier += (price > ma200).astype(float) * 0.10
     return multiplier.fillna(1.0)
+
+
+def _index_anchor_weights(eligible: pd.Index, assets: list[Asset]) -> pd.Series:
+    index_weights = pd.Series({asset.ticker: float(asset.index_weight) for asset in assets}, dtype=float)
+    anchored = index_weights.reindex(eligible).fillna(0.0)
+    if float(anchored.sum()) <= 0:
+        anchored = pd.Series(1.0, index=eligible)
+    return _normalize(anchored, 1.0)
 
 
 def build_target_weights_v4(scores: pd.DataFrame, prices: pd.DataFrame, assets: list[Asset], regime: RegimeResult, config: dict) -> pd.Series:
@@ -111,6 +118,7 @@ def build_target_weights_v4(scores: pd.DataFrame, prices: pd.DataFrame, assets: 
     min_score = float(buy_cfg.get("min_score_to_buy", 56))
     allow_top_exception = bool(buy_cfg.get("allow_top_rank_exception", True))
     top_exception_count = int(buy_cfg.get("top_rank_exception_count", 5))
+    index_anchor = min(1.0, max(0.0, float(cfg.get("index_weight_anchor", 0.0))))
 
     available = [asset.ticker for asset in assets if asset.ticker in prices.columns and asset.ticker in scores.index]
     score = scores["score"].reindex(available).dropna()
@@ -137,7 +145,11 @@ def build_target_weights_v4(scores: pd.DataFrame, prices: pd.DataFrame, assets: 
         raw = pd.Series(1.0, index=eligible.index)
 
     raw = _normalize(raw, 1.0)
-    final_exposure = _target_exposure(raw, prices, regime, config)
+    if index_anchor > 0:
+        index_raw = _index_anchor_weights(eligible.index, assets)
+        raw = _normalize((1.0 - index_anchor) * raw + index_anchor * index_raw, 1.0)
+
+    final_exposure = _target_exposure(raw, prices, regime, config, top_score=float(eligible.max()))
     weights = _normalize(raw, final_exposure)
     weights = _cap_weights(weights, max_weight, final_exposure)
     weights = _cap_top3(weights, max_top3, final_exposure)
