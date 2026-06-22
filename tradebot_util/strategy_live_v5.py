@@ -77,7 +77,7 @@ def generate_live_decision_v5(
 
     benchmark, benchmark_name = load_live_benchmark(config, prices, benchmark_csv=benchmark_csv)
     regime = detect_regime(prices, config, benchmark=benchmark)
-    scores = final_scores(prices, config, volume=volume)
+    scores = final_scores(prices, config, volume=volume, benchmark=benchmark)
     target = build_target_weights_v4(scores, prices, assets, regime, config)
 
     return LiveDecisionV5(
