@@ -4,11 +4,35 @@ from pathlib import Path
 
 import pandas as pd
 
-from .benchmarks_v2 import equal_weight_util_curve, weighted_util_proxy_curve
+from .indicators import returns
 from .universe import Asset
 
 DATE_CANDIDATES = ["date", "data", "Date", "Data", "DATA"]
-VALUE_CANDIDATES = ["close", "Close", "fechamento", "Fechamento", "pontuacao", "Pontuacao", "pontos", "Pontos", "ultimo", "Último", "Ultimo", "last", "Last"]
+VALUE_CANDIDATES = ["close", "Close", "fechamento", "Fechamento", "pontuacao", "Pontuacao", "pontos", "Pontos", "ultimo", "Ultimo", "last", "Last"]
+
+
+def normalized_index_weights(assets: list[Asset], columns: list[str] | pd.Index) -> pd.Series:
+    raw = pd.Series({asset.ticker: asset.index_weight for asset in assets}, dtype=float)
+    weights = raw.reindex(columns).fillna(0.0)
+    total = float(weights.sum())
+    if total <= 0:
+        return pd.Series(1.0 / len(columns), index=columns, dtype=float)
+    return weights / total
+
+
+def weighted_util_proxy_curve(prices: pd.DataFrame, assets: list[Asset], initial_cash: float = 10000.0) -> pd.Series:
+    weights = normalized_index_weights(assets, prices.columns)
+    rets = returns(prices).fillna(0.0)
+    curve = initial_cash * (1.0 + (rets * weights).sum(axis=1)).cumprod()
+    curve.name = "weighted_UTIL_proxy"
+    return curve
+
+
+def equal_weight_util_curve(prices: pd.DataFrame, initial_cash: float = 10000.0) -> pd.Series:
+    rets = returns(prices).fillna(0.0)
+    curve = initial_cash * (1.0 + rets.mean(axis=1)).cumprod()
+    curve.name = "equal_weight_UTIL"
+    return curve
 
 
 def _parse_decimal_series(series: pd.Series) -> pd.Series:
@@ -21,20 +45,16 @@ def _parse_decimal_series(series: pd.Series) -> pd.Series:
 
 def _parse_dates(series: pd.Series) -> pd.Series:
     text = series.astype(str).str.strip()
-    iso_mask = text.str.match(r"^\d{4}-\d{2}-\d{2}$", na=False)
-    if bool(iso_mask.all()):
-        return pd.to_datetime(text, format="%Y-%m-%d", errors="coerce")
-    br_mask = text.str.match(r"^\d{2}[./-]\d{2}[./-]\d{4}$", na=False)
-    if bool(br_mask.all()):
-        normalized = text.str.replace(".", "/", regex=False).str.replace("-", "/", regex=False)
-        return pd.to_datetime(normalized, format="%d/%m/%Y", errors="coerce")
+    parsed = pd.to_datetime(text, errors="coerce")
+    if parsed.notna().mean() >= 0.80:
+        return parsed
     return pd.to_datetime(text, dayfirst=True, errors="coerce")
 
 
 def load_real_util_csv(path: str | Path, initial_cash: float = 10000.0) -> pd.Series:
     csv_path = Path(path)
     if not csv_path.exists():
-        raise FileNotFoundError(f"Benchmark CSV não encontrado: {csv_path}")
+        raise FileNotFoundError(f"Benchmark CSV nao encontrado: {csv_path}")
 
     df = pd.read_csv(csv_path)
     if df.empty:
@@ -48,7 +68,7 @@ def load_real_util_csv(path: str | Path, initial_cash: float = 10000.0) -> pd.Se
     if value_col is None:
         value_col = df.columns[1] if len(df.columns) > 1 else None
     if value_col is None:
-        raise ValueError("CSV do benchmark precisa ter uma coluna de data e uma coluna de valor")
+        raise ValueError("CSV do benchmark precisa ter data e valor")
 
     dates = _parse_dates(df[date_col])
     values = _parse_decimal_series(df[value_col])
@@ -56,7 +76,7 @@ def load_real_util_csv(path: str | Path, initial_cash: float = 10000.0) -> pd.Se
     series = series[~series.index.duplicated(keep="last")]
 
     if len(series) < 2:
-        raise ValueError("Série do UTIL real tem dados insuficientes")
+        raise ValueError("Serie do UTIL real tem dados insuficientes")
     if float(series.iloc[0]) <= 0:
         raise ValueError("Primeiro valor do benchmark precisa ser maior que zero")
 
