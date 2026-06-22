@@ -1,0 +1,150 @@
+strategy:
+  name: UTIL Dynamic Universe Allocation V5.2 Research
+  version: 5.2
+  benchmark: real_UTIL_csv
+  mode: long_only
+  objective: reduced_cash_drag_diversified_research_profile
+
+universe:
+  source: B3_UTIL
+  auto_update: true
+  dynamic_universe: true
+  active_universe_path: data/universe/UTIL_universe_active.csv
+  latest_snapshot_path: data/universe/UTIL_carteira_atual.csv
+  previous_snapshot_path: data/universe/UTIL_carteira_anterior.csv
+  update_report_path: data/universe/UTIL_universe_update_report.csv
+  allow_config_fallback: true
+  update_frequency: monthly
+  assets:
+    AXIA3: {name: Axia Energia, sector: Energia Elétrica, index_weight: 0.1977}
+    SBSP3: {name: Sabesp, sector: Água e Saneamento, index_weight: 0.1885}
+    EQTL3: {name: Equatorial Energia, sector: Energia Elétrica, index_weight: 0.1181}
+    ENEV3: {name: Eneva, sector: Energia Elétrica, index_weight: 0.1178}
+    CPLE3: {name: Copel, sector: Energia Elétrica, index_weight: 0.1084}
+    CMIG4: {name: Cemig, sector: Energia Elétrica, index_weight: 0.0514}
+    ENGI11: {name: Energisa, sector: Energia Elétrica, index_weight: 0.0378}
+    EGIE3: {name: Engie Brasil, sector: Energia Elétrica, index_weight: 0.0309}
+    ISAE4: {name: ISA Energia Brasil, sector: Energia Elétrica, index_weight: 0.0290}
+    CSMG3: {name: Copasa, sector: Água e Saneamento, index_weight: 0.0267}
+    TAEE11: {name: Taesa, sector: Energia Elétrica, index_weight: 0.0217}
+    CPFE3: {name: CPFL Energia, sector: Energia Elétrica, index_weight: 0.0207}
+    SAPR11: {name: Sanepar, sector: Água e Saneamento, index_weight: 0.0192}
+    ALUP11: {name: Alupar, sector: Energia Elétrica, index_weight: 0.0127}
+    ORVR3: {name: Orizon, sector: Água e Saneamento, index_weight: 0.0103}
+    AURE3: {name: Auren, sector: Energia Elétrica, index_weight: 0.0092}
+
+data:
+  provider: yfinance
+  timeframe: 1d
+  adjusted_prices: true
+  start: "2018-01-01"
+  min_history_days: 252
+
+benchmark:
+  source: csv
+  csv_path: data/benchmarks/UTIL_historico.csv
+  strict_real_benchmark: false
+  fallback: weighted_UTIL_proxy
+
+rebalance:
+  main_frequency: monthly
+  risk_check_frequency: weekly
+  min_weight_change_to_trade: 0.010
+  weekly_rebalance: true
+  weekly_rebalance_min_exposure_gap: 0.08
+  weekly_rebalance_on_regime_change: true
+  update_universe_before_rebalance: true
+
+regime:
+  risk_on_equity: 1.00
+  neutral_equity: 1.00
+  defensive_equity: 0.90
+  risk_off_equity: 0.65
+  ma_fast: 50
+  ma_mid: 100
+  ma_slow: 200
+  breadth_risk_on: 0.55
+  breadth_neutral: 0.40
+  breadth_risk_off: 0.30
+
+portfolio_v4:
+  min_positions: 6
+  max_positions: 10
+  min_weight_per_asset: 0.030
+  max_weight_per_asset: 0.22
+  max_top3_weight: 0.60
+  score_power: 1.45
+  use_inverse_volatility: true
+  volatility_window: 63
+  target_volatility: 0.26
+  apply_vol_target_only_in_defense: true
+  vol_scalar_floor: 0.75
+  max_cash_by_regime:
+    RISK_ON: 0.02
+    NEUTRAL: 0.05
+    DEFENSIVE: 0.15
+    RISK_OFF: 0.35
+  min_equity_exposure: 0.60
+  max_equity_exposure: 1.00
+  benchmark_trend_bonus: true
+  keep_cash_when_no_edge: true
+  minimum_score_edge: 50
+
+score_weights:
+  relative_momentum: 0.40
+  absolute_momentum: 0.25
+  quality: 0.05
+  risk: 0.20
+  dividends: 0.05
+  liquidity: 0.05
+
+buy_rules:
+  min_score_to_buy: 54
+  allow_top_rank_exception: true
+  top_rank_exception_count: 6
+  require_price_above_ma100: false
+  require_positive_6m_return: false
+  avoid_if_price_above_ma20_plus_atr: 3.0
+
+sell_rules:
+  reduce_score_below: 48
+  sell_score_below: 40
+  sell_if_below_ma200: false
+  sell_if_6m_momentum_negative: false
+  trailing_drawdown_from_peak: 0.22
+
+risk:
+  portfolio_drawdown_reduce_1: 0.12
+  portfolio_drawdown_reduce_2: 0.18
+  portfolio_drawdown_protection: 0.26
+  max_single_asset_drawdown: 0.22
+  use_cash_protection: true
+
+execution:
+  mode: paper
+  broker: paper
+  order_type: target_weight
+  min_order_value: 50
+  allow_market_order: false
+  max_order_percent_of_avg_volume: 0.05
+  slippage_assumption: 0.002
+  estimated_cost_per_trade: 0.002
+
+live:
+  enabled: true
+  safe_mode: true
+  allowed_modes: [dry-run, paper]
+  decision_output_dir: state/live
+  paper_state_path: state/paper/positions.csv
+  schedule_hint: daily_after_close
+  update_universe_before_decision: true
+  require_real_benchmark_csv: true
+  block_real_orders_without_adapter: true
+
+backtest:
+  initial_cash: 10000
+  include_taxes: false
+  include_slippage: true
+  include_costs: true
+  output_dir: backtests/results_v5_2
+  compare_to: [real_UTIL_or_proxy, weighted_UTIL_proxy, equal_weight_UTIL]
