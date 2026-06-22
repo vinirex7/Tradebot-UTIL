@@ -16,6 +16,13 @@ def _rank_0_100(series: pd.Series, higher_is_better: bool = True) -> pd.Series:
     return ranked.fillna(50.0)
 
 
+def _last_benchmark_return(benchmark: pd.Series, window: int) -> float:
+    clean = benchmark.dropna()
+    if len(clean) <= window or clean.iloc[-window - 1] <= 0:
+        return 0.0
+    return float(clean.iloc[-1] / clean.iloc[-window - 1] - 1.0)
+
+
 def relative_momentum_score(prices: pd.DataFrame) -> pd.Series:
     r3 = rolling_return(prices, 63).iloc[-1]
     r6 = rolling_return(prices, 126).iloc[-1]
@@ -25,6 +32,31 @@ def relative_momentum_score(prices: pd.DataFrame) -> pd.Series:
     v12 = rolling_volatility(prices, 252).iloc[-1].replace(0, np.nan)
 
     composite = 0.20 * (r3 / v3) + 0.50 * (r6 / v6) + 0.30 * (r12 / v12)
+    return _rank_0_100(composite, higher_is_better=True)
+
+
+def benchmark_relative_momentum_score(prices: pd.DataFrame, benchmark: pd.Series | None = None) -> pd.Series:
+    """Rank assets by excess momentum versus the UTIL benchmark.
+
+    This is the active-alpha leg of V5.3: a stock only deserves an overweight when
+    it is improving versus the sector benchmark, not just because the whole UTIL
+    index is rising.
+    """
+    if benchmark is None or benchmark.dropna().empty:
+        return pd.Series(50.0, index=prices.columns)
+
+    bench = benchmark.reindex(prices.index).ffill().dropna()
+    if len(bench) < 253:
+        return pd.Series(50.0, index=prices.columns)
+
+    r3 = rolling_return(prices, 63).iloc[-1] - _last_benchmark_return(bench, 63)
+    r6 = rolling_return(prices, 126).iloc[-1] - _last_benchmark_return(bench, 126)
+    r12 = rolling_return(prices, 252).iloc[-1] - _last_benchmark_return(bench, 252)
+    v3 = rolling_volatility(prices, 63).iloc[-1].replace(0, np.nan)
+    v6 = rolling_volatility(prices, 126).iloc[-1].replace(0, np.nan)
+    v12 = rolling_volatility(prices, 252).iloc[-1].replace(0, np.nan)
+
+    composite = 0.25 * (r3 / v3) + 0.50 * (r6 / v6) + 0.25 * (r12 / v12)
     return _rank_0_100(composite, higher_is_better=True)
 
 
@@ -65,10 +97,12 @@ def final_scores(
     volume: pd.DataFrame | None = None,
     quality: pd.Series | None = None,
     dividends: pd.Series | None = None,
+    benchmark: pd.Series | None = None,
 ) -> pd.DataFrame:
     weights = config.get("score_weights", {})
 
     rel = relative_momentum_score(prices)
+    benchmark_rel = benchmark_relative_momentum_score(prices, benchmark=benchmark)
     abs_mom = absolute_momentum_score(prices)
     risk = risk_score(prices)
     liq = liquidity_score(volume, prices)
@@ -77,6 +111,7 @@ def final_scores(
 
     total = (
         float(weights.get("relative_momentum", 0.35)) * rel
+        + float(weights.get("benchmark_relative", 0.0)) * benchmark_rel
         + float(weights.get("absolute_momentum", 0.20)) * abs_mom
         + float(weights.get("quality", 0.15)) * quality_score
         + float(weights.get("risk", 0.15)) * risk
@@ -86,6 +121,7 @@ def final_scores(
 
     return pd.DataFrame({
         "relative_momentum": rel,
+        "benchmark_relative": benchmark_rel,
         "absolute_momentum": abs_mom,
         "quality": quality_score,
         "risk": risk,
